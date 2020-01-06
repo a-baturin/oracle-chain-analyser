@@ -127,3 +127,12 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+#Project-specific files
+achain.connections.json
+chain.*.js
+chain_names.js
+d3.min.js
+dagre-d3.min.js
+dagre.min.js
+

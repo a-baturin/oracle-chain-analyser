@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<script type="text/javascript" src="prism.js"></script>
+<script src="https://d3js.org/d3.v3.min.js" charset="utf-8"></script>
+<script src="https://dagrejs.github.io/project/dagre-d3/latest/dagre-d3.min.js"></script>
+<script type="text/javascript" src="chain_names.js"></script>
+<link type="text/css" rel="stylesheet" href="prism.css">
+<style type="text/css">
+html, body {font-family:Arial, sans-serif;font-size:14px;margin: 0; padding: 0; border: 0;display: flex;flex-direction: column;}
+#top {display: flex;flex-direction: row;flex-grow:1;width: 100%;justify-content: space-between}
+#top1 {display: flex;flex-direction: row}
+#checkers {height: 30px; overflow: auto;}
+#chain_name_select { overflow: auto;}
+#main {display: flex;flex-direction: row}
+#names {width: 17vw;min-width: 300px; max-height: 94vh;overflow:auto}
+#main2 {display: flex;flex-direction: column;width: 99%}
+#tabList {display: flex;flex-direction: row;flex-grow:1;width: 99%;min-height:95vh}
+#tabTree {display: flex;flex-direction: row;flex-grow:1;width: 99%;min-height:95vh}
+#info {width:25vw;min-width: 500px;display: flex;flex-direction: column; flex-grow:1}
+#owner {height: 15px;width:100%;padding-left:5px;padding-top:5px}
+#package {height: 15px;width:100%;padding-left:5px;padding-top:5px}
+#procedure {height: 15px;width:100%;padding-left:5px;padding-top:5px}
+#place {height: 15px;width:100%;padding-left:5px;padding-top:5px}
+#state {height: 15px;width:100%;padding-top:5px}
+#comment {min-height: 70px;width:100%;border-bottom-style: solid;border-top-style: solid;padding-left:5px;padding-top:5px;}
+#description {width:90%;flex-grow:1; max-height: 93vh;overflow:auto}
+#code {width:100%;flex-grow:1;max-height: 95vh;overflow:auto}
+#code-display {width:57vw;max-height: 95%;overflow:auto}
+.node {stroke: #333;fill: white;text-align: center;}
+.COMPLETED {stroke: blue}
+.SUCCEEDED {stroke: DarkGreen}
+.FAILED {stroke: red}
+.STOPPED {stroke: red}
+.OTHER {stroke: black}
+.SUBCHAIN > rect {fill: LightBlue}
+.node .type {
+    height: 100%;
+    width: 20px;
+    display: block;
+    float: left;
+    margin-left: 5px;
+    margin-right: 5px;
+    text-align: center;
+}
+div.tooltip {
+    position: absolute;
+    text-align: left;
+    padding: 2px;
+    font: 12px sans-serif;
+    background: lightsteelblue;
+    border: 0px;
+    border-radius: 8px;
+    pointer-events: none;
+}
+.edgePath {
+  fill: none;
+  stroke-width: 2px;
+  stroke-opacity: .3;
+}
+.active {
+  stroke-width: 5px;
+  stroke-opacity: 1;
+}
+.not-ok > rect {
+fill: LightGray
+}
+.buttons {
+  position: absolute;
+  right: 10px;
+  top: 30px;
+}
+.selector input[type="radio"] {display:none;}
+    .selector label {
+    display:inline-block;
+    background-color:#bbb;
+    padding:4px 11px;
+    font-family:Arial;
+    font-size:16px;
+}
+.selector input[type="radio"]:checked + label {background-color:#ddd;}
+svg { width: 100%; min-height: 95vh; }
+ul {list-style:none;padding-left:5px;}
+</style>
+</head>
+<body>
+  <div id="top">
+    <div id="checkers"></div>
+    <div id="top1">
+      <form class="selector" name="rSelector" onchange="switch_panes();">
+          <input type="radio" id="rTree" name="rTL" value="Tree" checked><label for="rTree">Tree</label>
+          <input type="radio" id="rList" name="rTL"value="List"><label for="rList">List</label>
+      </form>
+      <select id="chain_name_select" onchange="load_chain(this.value)"></select>
+    </div>
+  </div>
+  <div id="main">
+    <div id="names"></div>
+    <div id="main2">
+      <div id="tabList">
+        <div id="info">
+          <div id="owner"></div>
+          <div id="package"></div>
+          <div id="procedure"></div>
+          <div id="place"></div>
+          <div id="state"></div>
+          <div id="comment"></div>
+          <div id="description"></div>
+        </div>
+        <div id="code"></div>
+      </div>
+      <div id="tabTree"><div class="buttons"><button id="zoom-selected">Zoom to selected</button><button id="zoom-all">Zoom to all</button></div><svg><g/></svg></div>
+    </div>
+  </div>
+<script>
+var obj;
+var keys;
+var selector = document.getElementById('chain_name_select')
+var chains_sorted = chains.sort()
+for (chain in chains_sorted) {
+    var option = document.createElement('option');
+    if (default_chain == chains_sorted[chain]) {
+        option.selected = true;
+    }
+    option.text = chains_sorted[chain];
+    selector.add(option)
+}
+load_chain(default_chain);
+function draw_graph(){
+// Create a new directed graph
+g = new dagreD3.graphlib.Graph().setGraph({// Left-to-right layout
+    nodesep: 70,
+    align: 'DL',
+    ranksep: 50,
+    rankdir: 'LR',
+    marginx: 20,
+    marginy: 20
+});
+// Automatically label each of the nodes
+nodes.forEach(function(node) {
+    var indicator = ''
+    for (type in obj[node.name].type) {
+        indicator += '<div class = "type" style="background-color:' +groups[obj[node.name].type[type]].color+ '">'
+            + groups[obj[node.name].type[type]].short + '</div>'
+            }
+    g.setNode(node.name.replace(/\./g,'-'), {id: node.name.replace(/\./g,'-'), labelType: 'html', label: indicator + obj[node.name].step_name
+                        , class: obj[node.name].step_type + ((obj[node.name].state != '')? ' not-ok' : ''), padding: 2
+                        , description: unpack(obj[node.name].description) });
+} );
+links.forEach(function(link) {
+    if (g.nodes().indexOf(link.source.replace(/\./g,'-')) == -1) {alert('Source absent:' + link.source)}
+    if (g.nodes().indexOf(link.target.replace(/\./g,'-')) == -1) {alert('Target absent:' + link.target)}
+    if (g.nodes().indexOf(link.target.replace(/\./g,'-')) > -1 && g.nodes().indexOf(link.source.replace(/\./g,'-')) > -1) {
+        g.setEdge(link.source.replace(/\./g,'-'),link.target.replace(/\./g,'-'), {id: link.source.replace(/\./g,'-') + '--' + link.target.replace(/\./g,'-')
+                            , class: (['COMPLETED','SUCCEEDED','FAILED','STOPPED'].indexOf(link.type) > -1) ? link.type : 'OTHER'
+                            , arrowhead: 'undirected', lineInterpolate: 'basis' });
+    }
+});
+// Set some general styles
+g.nodes().forEach(function(v) {
+    var node = g.node(v);
+    node.rx = node.ry = 5;
+});
+// Define the div for the tooltip
+var div = d3.select('body').append('div').attr('class', 'tooltip').style('opacity', 0);
+svg = d3.select('svg');
+inner = svg.select('g');
+// Set up zoom support
+var zoom = d3.behavior.zoom().on('zoom', function() {
+      inner.attr('transform', 'translate(' + d3.event.translate + ')' +
+                                  'scale(' + d3.event.scale + ')');
+    });
+svg.call(zoom);
+d3.select('svg').on('dblclick.zoom', null);
+// Create the renderer
+var render = new dagreD3.render();
+// Run the renderer. This is what draws the final graph.
+render(inner, g);
+//Add interactivity to nodes
+inner.selectAll('g.node').on('mouseover', function(d) {
+            div.transition().duration(200).style('opacity', .9);
+            div.html(d.replace(/-/g,'.') + '<br/>'
+                + obj[d.replace(/-/g,'.')].owner + '.'
+                + obj[d.replace(/-/g,'.')].package + '.'
+                + obj[d.replace(/-/g,'.')].procedure + '<br/>'
+                + ((obj[d.replace(/-/g,'.')].comment != null) ? obj[d.replace(/-/g,'.')].comment + '<br/>' : '')
+                + ((obj[d.replace(/-/g,'.')].state != '')?'<b>' + obj[d.replace(/-/g,'.')].state + '</b><br/>':'')
+                + g.node(d).description).style('left', (d3.event.pageX) + 'px').style('top', (d3.event.pageY - 28) + 'px');
+            })
+        .on('mouseout', function(d) {
+            div.transition()
+                .duration(500)
+                .style('opacity', 0);
+    })
+    .on('dblclick', function(d) {
+        shift_tabs();
+        select_node(d, d3.event.shiftKey);
+        document.getElementById('m' + d.replace(/-/g,'.')).scrollIntoView();
+              d3.event.stopPropagation();
+    })
+    .on('click', function(d) {
+        if (d3.event.defaultPrevented) return;
+        select_node(d, d3.event.shiftKey);
+        document.getElementById('m' + d.replace(/-/g,'.')).scrollIntoView();
+        d3.event.stopPropagation();
+});
+//Add interactivity to edges
+inner.selectAll('g.edgePath').on('click', function(d) {
+    if (d3.event.defaultPrevented) return;
+    svg.selectAll('.node').classed('active', function(p) {return p === d.v || p === d.w || (svg.select('#' + p).classed('active') && d3.event.shiftKey); });
+    svg.selectAll('g.edgePath').classed('active', function(p) {return svg.select('#' + p.v).classed('active') || svg.select('#' + p.w).classed('active'); });
+    d3.event.stopPropagation();
+});
+//deselect action
+svg.on('click', function(d) {
+    if (d3.event.defaultPrevented) return;
+    if (!d3.event.shiftKey) {
+        svg.selectAll('g.edgePath').classed('active', false);
+        svg.selectAll('.node').classed('active', false);
+        for (step in keys) {
+            li = document.getElementById('m' + keys[step])
+            if (li != null) {
+                li.style.color = 'blue'
+            }
+        document.getElementById('code').innerHTML = ''
+        document.getElementById('description').innerHTML = ''
+        document.getElementById('owner').innerHTML = ''
+        document.getElementById('comment').innerHTML = ''
+        document.getElementById('state').innerHTML = ''
+        document.getElementById('place').innerHTML = ''
+        document.getElementById('package').innerHTML = ''
+        document.getElementById('procedure').innerHTML = ''
+        }
+    }
+})
+//Zoom to fit button
+d3.selectAll('#zoom-all').on('click', function(d) {zoomChange(0)});
+d3.selectAll('#zoom-selected').on('click', function(d) {
+    bbox = []
+    svg.selectAll('.node.active').each(function(d){
+        var n = svg.select('#'+d)
+        var x = d3.transform(n.attr("transform")).translate[0];
+        var y = d3.transform(n.attr("transform")).translate[1];
+        var r = n.select('rect')
+        var bboxt = [x - r.attr('width')/2, x + r.attr('width')/2, y - r.attr('height')/2, y + r.attr('height')/2]
+        if (bbox.length == 0) {
+            bbox = bboxt
+        } else {
+            bbox = [Math.min(bbox[0], bboxt[0]), Math.max(bbox[1], bboxt[1]), Math.min(bbox[2], bboxt[2]), Math.max(bbox[3], bboxt[3])]
+        }
+    })
+    svg.selectAll('g.edgePath.active').each(function(d){
+        g.edge(d).points.forEach(function(p) {
+            bbox = [Math.min(bbox[0], p.x), Math.max(bbox[1], p.x), Math.min(bbox[2], p.y), Math.max(bbox[3], p.y)]
+        })
+    })
+    if (bbox.length != 0) {
+        var graphWidth = bbox[1] - bbox[0] + 80;
+        var graphHeight = bbox[3] - bbox[2] + 40;
+        var width = parseInt(svg.style('width').replace(/px/, ''));
+        var height = parseInt(svg.style('height').replace(/px/, ''));
+        var zoomScale = Math.min(width / graphWidth, height / graphHeight);
+        var translate = [(width/2) - (((bbox[1] + bbox[0])*zoomScale)/2), (height/2) - (((bbox[3] + bbox[2])*zoomScale)/2)];
+        zoom.translate(translate);
+        zoom.scale(zoomScale);
+        zoom.event(svg);
+    }
+});
+// Zoom and scale to fit
+zoomChange(0)
+function zoomChange(z) {
+    if (z == 0) {
+        var graphWidth = g.graph().width + 80;
+        var graphHeight = g.graph().height + 40;
+        var width = parseInt(svg.style('width').replace(/px/, ''));
+        var height = parseInt(svg.style('height').replace(/px/, ''));
+        var zoomScale = Math.min(width / graphWidth, height / graphHeight);
+        var translate = [(width/2) - ((graphWidth*zoomScale)/2), (height/2) - ((graphHeight*zoomScale)/2)];
+        zoom.translate(translate);
+        zoom.scale(zoomScale);
+        zoom.event(svg);
+    }
+}
+}
+function select_node(d, shiftKey) {
+    svg.selectAll('.node').classed('active', function(p) {return (!svg.select('#' + d).classed('active') && p === d)
+                                     || (svg.select('#' + p).classed('active') && shiftKey && p != d); });
+    svg.selectAll('g.edgePath').classed('active', function(p) {return svg.select('#' + p.v).classed('active') || svg.select('#' + p.w).classed('active'); });
+    showInfo(d.replace(/-/g,'.'))
+}
+function shift_tabs(){
+    tf = document.getElementById('rList').checked;
+    document.getElementById('rList').checked = document.getElementById('rTree').checked;
+    document.getElementById('rTree').checked = tf;
+    switch_panes();
+}
+function switch_panes() {
+    document.getElementById('tabList').style.display = (document.getElementById('rList').checked ? 'flex':'none');
+    document.getElementById('tabTree').style.display = (document.getElementById('rTree').checked ? 'flex':'none');
+}
+function load_chain(chain_name) {
+    var old_js = document.getElementById('chain_data')
+    if (old_js != null) {
+        old_js.parentNode.removeChild(old_js)
+    }
+    var fileref=document.createElement('script');
+    fileref.setAttribute('id','chain_data');
+    fileref.setAttribute('type','text/javascript');
+    fileref.setAttribute('src', 'chain.' + chain_name + '.js');
+    document.getElementsByTagName('head')[0].appendChild(fileref);
+    fileref.onload = function () {
+        keys = Object.keys(obj).sort();
+        var v_checker = document.getElementById('checkers')
+        v_checker.innerHTML = ''
+        for (group in groups) {
+            v_checker.innerHTML += '<input id="ch' + group + '" type="checkbox" value="1" checked onchange="set_steps_visibility();"/><label style="background-color:'
+                        +groups[group].color + '">' + group + '</label>'
+        }
+        v_checker.innerHTML += '<input id="chOther" type="checkbox" value="1" checked onchange="set_steps_visibility();"/><label>Other</label>'
+        document.getElementById('tabList').style.display = 'flex';
+        document.getElementById('tabTree').style.display = 'flex';
+        drawNames();
+        draw_graph();
+        switch_panes();
+    }
+}
+function unpack(str) {
+    var res = '';
+    for(var i = 0, n = str.length; i < n; i+=2) {
+        res += String.fromCharCode(parseInt(str.substr(i, 2),16));
+    }
+    return res;
+};
+function showInfo(s) {
+    var props = Object.keys(obj[s])
+    for (step in keys) {
+        li = document.getElementById('m' + keys[step])
+        if (li != null) {
+            li.style.color = 'blue'
+        }
+    }
+    li = document.getElementById('m' + s)
+    if (li != null) {
+        li.style.color = 'red'
+    }
+    for (prop in props) {
+        var elem = document.getElementById(props[prop])
+        if (elem != null) {
+            if (props[prop] == 'code') {
+                elem.innerHTML = unpack(obj[s]['code'])
+                Prism.highlightAll()
+            }
+            else if (props[prop] == 'description') {
+                elem.innerHTML = unpack(obj[s]['description'])
+            }
+            else {
+                elem.innerHTML = obj[s][props[prop]]
+            }
+        }
+    }
+    var hash = location.hash.replace('#','');
+    if(hash != ''){
+        location.hash = '';
+    }
+};
+function drawNames() {
+    var names_ul = document.getElementById('names')
+    names_ul.innerHTML = ''
+    for (step in keys) {
+            tmp_o = document.getElementById(obj[keys[step]]['chain_owner'])
+            if (tmp_o == null) {
+                tmp_o = document.createElement('ul');
+                tmp_o.setAttribute('id',obj[keys[step]]['chain_owner'])
+                tmp_o.innerHTML = '<i>' + obj[keys[step]]['chain_owner'] + '</i>';
+                names_ul.appendChild(tmp_o);
+            }
+            tmp_c = document.getElementById(obj[keys[step]]['chain_owner'] + '.' + obj[keys[step]]['chain'])
+            if (tmp_c == null) {
+                tmp_c = document.createElement('ul');
+                tmp_c.setAttribute('id',obj[keys[step]]['chain_owner'] + '.' + obj[keys[step]]['chain'])
+                tmp_c.innerHTML = '<b>' + obj[keys[step]]['chain'] + '</b>';
+                tmp_o.appendChild(tmp_c);
+            }
+            tmp_s = document.createElement('li')
+            tmp_s.innerHTML = '<a id="m'+ keys[step] + '" style="color: blue" title="'+ keys[step]
+                    +'" href="#" onclick="select_node(\''+ keys[step].replace(/\./g,'-') +'\', event.shiftKey);return false;" '
+                    +'ondblclick="select_node(\''+ keys[step].replace(/\./g,'-') +'\', event.shiftKey);shift_tabs();return false;">'
+                    + obj[keys[step]]['step_name']
+            for (type in obj[keys[step]].type) {
+                tmp_s.innerHTML += '<span style="background-color:' +groups[obj[keys[step]].type[type]].color+ '">'
+                    + groups[obj[keys[step]].type[type]].short + '</span>'
+            }
+            tmp_s.innerHTML += '</a><BR>'
+            tmp_c.appendChild(tmp_s);
+    }
+    set_steps_visibility();
+};
+function set_steps_visibility(){
+    for (step in keys) {
+        show_step = false
+        for (type in obj[keys[step]].type) {
+            c_checker = document.getElementById('ch'+obj[keys[step]].type[type])
+            if (c_checker != null){
+                if (c_checker.checked) {show_step = true}
+            }
+        }
+        document.getElementById('m' + keys[step]).parentElement.style.display = (show_step || (obj[keys[step]]['type'].length == 0 && document.getElementById('chOther').checked)) ? '': 'none';
+        if (typeof inner != 'undefined') {
+            inner.select('#' + keys[step].replace(/\./g,'-')).transition()
+                .style('opacity', function(p) { return (show_step|| (obj[keys[step]]['type'].length == 0 && document.getElementById('chOther').checked))? 1: 0.1; });
+        }
+    }
+};
+</script>
+</body>
+</html>
